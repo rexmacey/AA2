@@ -1,5 +1,5 @@
 Package: AA2
-Title: What the Package Does (One Line, Title Case)
+Title: Provides functions for asset allocation, asset location, and rebalancing
 Version: 0.0.0.9000
 Authors@R: 
     person(given = "Rex",
@@ -7,7 +7,11 @@ Authors@R:
            role = c("aut", "cre"),
            email = "rex.macey@redtortoisellc.com",
            comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: Asset allocation, location, and rebalancing
+Description: Provides functions to create asset allocation studeis and rebalance portfolios. These are done in a tax aware manner. 
 License: GPL-3
 Encoding: UTF-8
 LazyData: true
+Depends: R (>= 2.10)
+Imports:
+  readxl
+RoxygenNote: 7.0.2
