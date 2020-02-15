@@ -4,7 +4,7 @@
 \alias{readRAFIFile}
 \title{Read RAFI XLSX file}
 \usage{
-readRAFIFile(fn, rafi_xlranges)
+readRAFIFile(fn, rafi_xlranges = NULL)
 }
 \arguments{
 \item{fn}{name of XLSX file including path}
