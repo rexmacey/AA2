@@ -34,9 +34,59 @@ readRAFIFile <- function(fn, rafi_xlranges = NULL){
   return(out)
 }
 
+#' Read Asset Class Name File
+#'
+#' This file contains both a mapping of RT asset class names to RAFI and characteristics of the asset classes
+#'
+#' @param fn name of file
+#' @param sheet which sheet to read, defaults to first
+#'
+#' @return
+#' @export
+#'
 readACNameFile <- function(fn, sheet = 1){
   out <- suppressMessages(readxl::read_excel(acNamesFN, sheet = sheet))
   out$rafi_ret_class_names <- make.names(out$rafi_ret_class_names)
   out$rafi_corr_class_names <- make.names(out$rafi_corr_class_names)
   return(out)
 }
+
+#' Reads and Excel file
+#'
+#' Makes sure the names are legit in R
+#'
+#' @param fileName name of Excel file
+#' @param sheet sheet to read, default, NULL, leads to first
+#'
+#' @return
+#' @export
+#'
+readExcelFile <- function(fileName, sheet = NULL){
+  out <- readxl::read_excel(fileName, sheet, .name_repair = "unique")  # "data/Rebalancer - Portfolio Targets.xlsx"
+  colnames(out) <- make.names(colnames(out))
+  return(out)
+}
+
+#' Read Portfolio Holdings from File
+#'
+#'# Read in a file exported from Black Diamond / Data Mining / Rebalance Template extract a portfolio
+#'  Munge a bit
+#'
+#' @param portfolioName name of portfolio for which to filter holdings. If NULL all holdings for all portfolios are returned.
+#' @param portfolioHoldingsFN name of Excel file with the holdings
+#'
+#' @return
+#' @export
+#'
+#' @examples
+readPortfolioHoldings <- function(portfolioName = NULL, portfolioHoldingsFN){
+  out <- suppressWarnings(readxl::read_excel(portfolioHoldingsFN, .name_repair = "unique",
+                                                 col_types = c(rep("guess",9), rep("logical", 3), rep("guess", 12))))
+  colnames(out) <- make.names(colnames(out))
+  if(!is.null(portfolioName)){
+    out <- out %>%
+      filter(Portfolio.Name == portfolioName)
+  }
+  return(out)
+}
+

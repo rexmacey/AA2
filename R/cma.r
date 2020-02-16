@@ -50,3 +50,31 @@ createCMA <- function(rafiFN, acNamesFN, rafi_xlranges = NULL){
   class(out) <- "cma"
   return(out)
 }
+
+#' Print cma object
+#'
+#' @param cma cma object
+#'
+#' @return NULL
+#' @export
+#'
+print.cma<-function(cma, ...){
+  cat("As of",cma$asOfDate,"\n" )
+  cat("Number of asset classes",cma$nClasses,"\n\n")
+  #temp<-cma$ac.data[,c("LongName","AssetClass","geom.ret","risk")]
+  #temp<-cbind(cma$acData[,c("LongName","Asset.Class","geomRet","risk")],row.names(cma$acData))
+  temp<-cma$acData[,c("LongName","Asset.Class","geomRet","risk", "rt_class_names")]
+  temp[,3:4]<-round(100*temp[,3:4],1)
+  colnames(temp)<-c("Asset Class","Broad Class","Return%","Risk%","Abbrev")
+  temp<-temp[order(temp$'Risk%',temp$'Asset Class'),]
+  print(temp, right=FALSE, row.names=FALSE)
+  cat("\nInflation ",round(100*cma$inflationRate,1),"% \n",sep="" )
+  plot((cma$acData %>% pull(risk))*100, (cma$acData %>% pull(geomRet))*100,
+       main="Asset Class Assumptions", xlab="Std Dev %", ylab="Return %",col="blue",pch=16)
+  loc<-100*cma$acData[,c("risk","geomRet")]
+  loc[,2]<-loc[,2]-0.25 #move down a bit
+  text(loc,cma$classes)
+  abline(h=100*cma$inflationRate,col="red")
+  invisible(NULL)
+}
+
