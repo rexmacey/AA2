@@ -1,7 +1,7 @@
 # These are utilities related to estimating the future value of the portfolio as currently allocated
-rebalCur <- function(lots, targetAllocation){
+rebalCur <- function(lots, targetAllocation, LTCG=0){
   out <- list()
-  out$lpMatrix <- rebalCurBuildConstraintMatrix(lots, targetAllocation)
+  out$lpMatrix <- rebalCurBuildConstraintMatrix(lots, targetAllocation, LTCG)
   if(sum(is.na(out$lpMatrix$mat))>0){
     inds = which(is.na(lpMatrix$mat), arr.ind=TRUE)
     warning(paste(sum(is.na(lpMatrix$mat))), "NAs found in constraint matrix.")
@@ -27,23 +27,30 @@ rebalCur <- function(lots, targetAllocation){
 #' @return list with constraint matrix and RHS and dir
 #' @export
 #'
-rebalCurBuildConstraintMatrix <- function(lots, targetAllocation){
+rebalCurBuildConstraintMatrix <- function(lots, targetAllocation, LTCG){
   rowLabels <- character()
   out <- list()
 
-  temp <- rebalCurBuildSegmentMinMaxConstraints(lots, targetAllocation)
+  temp <- rebalCurBuildSegmentMinMaxConstraints(lots, targetAllocation, LTCG)
   out$mat <- temp$mat
   out$dir <- temp$dir
   out$rhs <- temp$rhs
-  rowLabels <-c(rowLabels, paste("Min:", targetAllocation$Segment))
-  rowLabels <-c(rowLabels, paste("Max:", targetAllocation$Segment))
+  rowLabels <-c(rowLabels, paste("Target Allocation:", targetAllocation$Segment))
+  # rowLabels <-c(rowLabels, paste("Min:", targetAllocation$Segment))
+  # rowLabels <-c(rowLabels, paste("Max:", targetAllocation$Segment))
   out$rowLabels <- rowLabels
 
-  temp <- rebalCurBuildPerAccountConstraints(lots, targetAllocation)
+  temp <- rebalCurBuildPerAccountConstraints(lots, targetAllocation, LTCG)
   out$mat <- rbind(out$mat, temp$mat)
   out$dir <- c(out$dir, temp$dir)
   out$rhs <- c(out$rhs, temp$rhs)
-  rowLabels <- c(rowLabels, paste("AccountCash (=0):", levels(lots$Account.Number)))
+  rowLabels <- c(rowLabels, paste("AccountCash (=0):", unique(lots$Account.Number)))
+
+  temp <- rebalCurBuildMaxQuantityConstraints(lots, targetAllocation)
+  out$mat <- rbind(out$mat, temp$mat)
+  out$dir <- c(out$dir, temp$dir)
+  out$rhs <- c(out$rhs, temp$rhs)
+  rowLabels <- c(rowLabels, paste("Max Quantity Lot", 1:nrow(lots)))
 
   out$rowLabels <- rowLabels
   out$colLabels <- labelMatrixCol(lots, targetAllocation)
@@ -62,7 +69,38 @@ rebalCurBuildConstraintMatrix <- function(lots, targetAllocation){
 #' @return list with constraint matrix, rhs and dir entries
 #' @export
 #'
-rebalCurBuildSegmentMinMaxConstraints <- function(lots, targetAllocation, minTol = 0.004, maxTol = 0.004){
+rebalCurBuildSegmentMinMaxConstraints <- function(lots, targetAllocation, LTCG = 0){
+  # net sales may not exceed difference between current allocation and minimum allocation
+  # net buys may not exceed difference between maximum allocation and current allocation
+  # first nSegments are the minimum; next nSegments are the maximums
+
+  # if minCashWt <= strategyCashWt then there's no adjustment.  StrategyCash is sufficient.
+  # if minCashWt > strategyCashWt then we need to adjust strategy weights.
+
+  currentAllocation <- calcAllocationBySegment(lots)
+  nAccounts <- length(unique(lots$Account.Number))
+  nLots <- nrow(lots)
+  nSegments <- nrow(targetAllocation)
+  portfolioValue <- sum(lots$Market.Value) + sum(lots$endCash)
+
+  out <- list()
+  out$mat <- matrix(0, nrow = nSegments,
+                    ncol = nrow(lots) + nSegments * nAccounts)
+  out$rhs <- numeric(nSegments)
+  for(i in 1:nrow(targetAllocation)){
+    segmentName <- targetAllocation$Segment[i]
+    segmentValue <- currentAllocation %>% filter(Segment == segmentName) %>% pull(Value)
+    targetValue <- (targetAllocation %>% filter(Segment == segmentName) %>% pull(Wt)) * portfolioValue
+    out$mat[i, ] <- c(-1 * (lots$rtSegment == segmentName) * lots$Price +
+                        lots$Unit.GL * LTCG * (lots$Tax.Status == "Taxable") * (lots$rtSegment == segmentName),
+                      rep(1 * (targetAllocation$Segment == segmentName), nAccounts))
+    out$rhs[i] <- targetValue - segmentValue
+  }
+  out$dir <- rep("==", nSegments)
+  return(out)
+}
+
+CopyOfrebalCurBuildSegmentMinMaxConstraints <- function(lots, targetAllocation, minTol = 0.004, maxTol = 0.004){
   # net sales may not exceed difference between current allocation and minimum allocation
   # net buys may not exceed difference between maximum allocation and current allocation
   # first nSegments are the minimum; next nSegments are the maximums
@@ -82,20 +120,23 @@ rebalCurBuildSegmentMinMaxConstraints <- function(lots, targetAllocation, minTol
   out$rhs <- numeric(2 * nSegments)
   for(i in 1:nrow(targetAllocation)){
     segmentName <- targetAllocation$Segment[i]
-    segmentValue <- segmentAllocation %>% filter(Segment == segmentName) %>% pull(Value)
-    out$mat[i, ] <- c((lots$rtSegment == segmentName) *lots$Price,
-                      rep(-1 * (targetAllocation$Segment == segmentName), nAccounts))
-    out$mat[i + nSegments, ] <- c((lots$rtSegment == segmentName) * -1 *lots$Price,
-                                           rep(1 * (targetAllocation$Segment == segmentName), nAccounts))
-    out$rhs[i] <- segmentValue - portfolioValue * (targetAllocation$Wt[i] - minTol)
-    out$rhs[i + nSegments] <- portfolioValue * (targetAllocation$Wt[i] + maxTol) -
-      segmentValue
+    segmentValue <- currentAllocation %>% filter(Segment == segmentName) %>% pull(Value)
+    targetValue <- targetAllocation %>% filter(Segment == segmentName) %>% pull(Value)
+    out$mat[i, ]             <- c(-1 * (lots$rtSegment == segmentName) * lots$Price,
+                                  rep(1 * (targetAllocation$Segment == segmentName), nAccounts))
+
+    out$mat[i + nSegments, ] <- c(-1 * (lots$rtSegment == segmentName) * lots$Price,
+                                  rep(1 * (targetAllocation$Segment == segmentName), nAccounts))
+
+    out$rhs[i] <- targetValue * (1 - minTol) - segmentValue
+    out$rhs[i + nSegments] <- targetValue * (1 + maxTol) - segmentValue
   }
-  out$dir <- rep("<=", 2 * nSegments)
+  out$dir <- c(rep(">=", nSegments), rep("<=", nSegments))
   return(out)
 }
 
-rebalCurBuildPerAccountConstraints <- function(lots, targetAllocation){
+
+rebalCurBuildPerAccountConstraints <- function(lots, targetAllocation, LTCG = 0){
   nAccounts <- length(unique(lots$Account.Number))
   nLots <- nrow(lots)
   nSegments <- nrow(targetAllocation)
@@ -104,9 +145,10 @@ rebalCurBuildPerAccountConstraints <- function(lots, targetAllocation){
                     ncol = nLots + nSegments * nAccounts)
   out$rhs <- rep(0, nAccounts)
   for(i in 1:nAccounts){
-    accountNumber <- levels(lots$Account.Number)[i]
+    accountNumber <- unique(lots$Account.Number)[i]
     endingCash <- sum(lots %>% filter(Account.Number == accountNumber) %>% pull(endCash))
-    out$mat[i, 1:nLots] <- -1 * (lots$Account.Number == accountNumber) * lots$Price
+    out$mat[i, 1:nLots] <- -1 * (lots$Account.Number == accountNumber) * lots$Price +
+      lots$Unit.GL * LTCG * (lots$Tax.Status == "Taxable") * (lots$Account.Number == accountNumber)
     out$mat[i, (nLots + (i-1)*nSegments + 1):(nLots + i*nSegments)] <- 1.0
     out$rhs[i] <- endingCash
   }
@@ -135,6 +177,20 @@ rebalCurBuildObjectiveCoefficients <- function(lots, targetAllocation){
   out[1:nLots] <- (lots$Tax.Status == "Taxable") * lots$Unit.GL * 10 + lots$Price
   return(out)
 }
+
+rebalCurBuildMaxQuantityConstraints <- function(lots, targetAllocation){
+  nAccounts <- length(unique(lots$Account.Number))
+  nLots <- nrow(lots)
+  nSegments <- nrow(targetAllocation)
+  out <- list()
+  out$mat <- matrix(0, nrow = nLots,
+                    ncol = nLots + nSegments * nAccounts)
+  out$mat[1:nLots, 1:nLots] <- diag(nLots)
+  out$dir <- rep("<=", nLots)
+  out$rhs <- lots$Units * as.numeric(!lots$DoNotSell) # account for Do not sell
+  return(out)
+}
+
 #' Calculate after-tax portfolio values over a one year period for assets in a taxable account
 #'
 #' @param x a tibble with price, units, Cost.Basis, taxStatus, segment, yld, growth, valChg, intOrd, intTE, divQual, divOrd, turnover, LTCG, STCG, expense,  endCash
@@ -177,6 +233,7 @@ ATV.taxable1 <- function(x, taxRates, lastYear = FALSE){
     out$Units <- 0
     out$Cost.Basis <- 0
   }
+  out$Market.Value <- out$Units * out$Price
   return(out)
 }
 
@@ -217,6 +274,7 @@ ATV.nonTaxable1 <- function(x, taxRates, lastYear = FALSE){
       out$endCash <- out$endCash - tax
     }
   }
+  out$Market.Value <- out$Units * out$Price
   return(out)
 }
 
@@ -253,7 +311,7 @@ labelMatrixCol <- function(lots, targetAllocation){
   nSegments <- nrow(targetAllocation)
   out <- paste0("lot_", seq(1, nLots))
   for(i in 1:nAccounts){
-    accountNumber <- levels(lots$Account.Number)[i]
+    accountNumber <- unique(lots$Account.Number)[i]
     for(j in 1:nSegments){
       out <- c(out, paste0(targetAllocation$Segment[j], "_", accountNumber))
     }
