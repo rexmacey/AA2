@@ -61,10 +61,10 @@ investor.create<-function(portfolioHoldings,
                           totalassets = sum(portfolioHoldings$Market.Value))
 
     initialValues$PreTaxPct <- initialValues$PreTaxValue / initialValues$PreTaxValue[4]
-    # intentionally taxing all unrealized gains at LTCG rate
+    # intentionally taxing all unrealized gains at LTCG rate, use retirement rate for deferred account
     initialValues$AfterTaxValue[1] <- initialValues$PreTaxValue[1] -
         unrealizedGL * taxrates$LTCG
-    initialValues$AfterTaxValue[2] <- initialValues$PreTaxValue[2]*(1-taxrates$OrdInc)
+    initialValues$AfterTaxValue[2] <- initialValues$PreTaxValue[2]*(1-taxrates$RetirementOrdInc)
     initialValues$AfterTaxValue[3] <- initialValues$PreTaxValue[3]
     initialValues$AfterTaxValue[4] <- sum(initialValues$AfterTaxValue[1:3])
     initialValues$AfterTaxPct <- initialValues$AfterTaxValue / initialValues$AfterTaxValue[4]
@@ -94,9 +94,9 @@ print.investor<-function(x, ...){
     av<-x$initialValues
     av$PreTaxPct<-round(100*av$PreTaxPct,2)
     av$AfterTaxPct<-round(100*av$AfterTaxPct,2)
-    tax<-data.frame(Tax=unlist(strsplit("Ordinary Income, LT Cap Gain, ST Cap Gain, Qual Div, State",split = ",")),
+    tax<-data.frame(Tax=unlist(strsplit("Ordinary Income,LT Cap Gain,ST Cap Gain,Qual Div,State,Retirement Ordinary Income",split = ",")),
                     Rate=c(x$taxRates$OrdInc, x$taxRates$LTCG, x$taxRates$STCG,
-                           x$taxRates$QualDiv, x$taxRates$raw$stateOrdInc))
+                           x$taxRates$QualDiv, x$taxRates$raw$stateOrdInc, x$taxRates$RetirementOrdInc))
     rownames(tax)<-NULL
     av$Account<-format(av$Account,justify="left")
     av$PreTaxValue<-prettyNum(format(round(av$PreTaxValue,0), scientific = FALSE),big.mark = ",")

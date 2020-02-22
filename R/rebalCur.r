@@ -1,4 +1,100 @@
 # These are utilities related to estimating the future value of the portfolio as currently allocated
+
+simulateCurrentStrategy <- function(investor, cma){
+  # for each year in horizon
+  #   calculate value at end of year keeping cash to side in taxable accounts (ATV.taxable1 function)
+  #   pay taxes reduce taxable account value (part of ATV.taxable1 function)
+  #   rebalance to initial segment wts. No movement between portfolios
+  # end for
+  # Adjust values for taxes on  final sales
+  ac <- cma$acData %>% rename(intOrd = IntOrd, intTE = IntTE, divQual = DivQual,
+                              divOrd = DivOrd, turnover = Turnover, expense = Expense, segment = rt_class_names) %>%
+    select(yld, growth, valChg, intOrd, intTE, divQual, divOrd, turnover, LTCG, STCG, expense, segment)
+
+  lots <- investor$lots %>%
+    select(Ticker, Price, Units, Cost.Basis, Tax.Status, rtSegment, Unit.GL, Account.Number, Security.Type, Market.Value, DoNotSell) %>%
+    left_join(ac, by = c("rtSegment" = "segment")) %>% mutate(endCash = 0)
+
+  # taxRates <- investor$taxRates
+
+  targetAllocation <- calcAllocationBySegment(lots)
+  for(y in 1:investor$horizon){
+    # calc after tax values for each lot after one year of investing
+    nLots <- nrow(lots)
+    for(i in 1:nLots){
+      lots[i,] <- ATV.year1(lots[i,], investor$taxRates, FALSE)
+    }
+    if(y < investor$horizon){
+      # rebalance to targetAllocation except after last year since it's implied everything is sold to realize taxes.
+      rebal <- rebalCur(lots, targetAllocation, investor$taxRates$LTCG)
+      # apply results of rebal
+      # subtract sales from units, recalc cost and market, adj end cash for tax on realized gains
+      lots <- lots %>% mutate(Cost.Basis = ifelse(Units == 0, 0, Cost.Basis * (1 - rebal$lpSolve$solution[1:nLots] / Units)),
+                            Units = Units - rebal$lpSolve$solution[1:nrow(lots)],
+                            Market.Value = Units * Price,
+                            endCash = -rebal$lpSolve$solution[1:nrow(lots)]*(lots$Tax.Status=="Taxable")*lots$Unit.GL*investor$taxRates$LTCG)
+      # add lots for each buy
+      temp <- lots[0,]
+      for(i in (nLots+1):rebal$lpSolve$x.count){
+        if(rebal$lpSolve$solution[i] > 0){
+          ticker = substr(rebal$lpMatrix$colLabels[i], 1, regexpr("_", rebal$lpMatrix$colLabels[i])-1)
+          accountNumber <- substr(rebal$lpMatrix$colLabels[i], regexpr("_", rebal$lpMatrix$colLabels[i])+1, nchar(rebal$lpMatrix$colLabels[i]))
+          taxStatus <- investor$holdings %>% filter(Account.Number == accountNumber) %>% top_n(1, wt = Market.Value) %>% pull(Tax.Status)
+          temp <- temp %>% add_row(Ticker = ticker,
+                                   Price = 1,
+                                   Units = rebal$lpSolve$solution[i],
+                                   Cost.Basis = rebal$lpSolve$solution[i],
+                                   Tax.Status = taxStatus,
+                                   rtSegment = Ticker,
+                                   Unit.GL = 0,
+                                   Account.Number = accountNumber,
+                                   Market.Value = rebal$lpSolve$solution[i],
+                                   DoNotSell = FALSE)
+        }
+      }
+      temp <- temp %>%
+        select(Ticker, Price, Units, Cost.Basis, Tax.Status, rtSegment, Unit.GL, Account.Number, Security.Type, Market.Value, DoNotSell) %>%
+        left_join(ac, by = c("rtSegment" = "segment")) %>% mutate(endCash = 0)
+      lots <- rbind(lots, temp)
+    }
+  }
+
+  # add lots for each ending cash position
+  temp <- lots[0,]
+  outWithEndCash <- lots %>% filter(endCash != 0)
+  for(i in nrow(outWithEndCash)){
+    temp <- temp %>% add_row(Ticker = "USCash",
+                             Price = 1,
+                             Units = outWithEndCash$endCash,
+                             Cost.Basis = outWithEndCash$endCash,
+                             Tax.Status = outWithEndCash$Tax.Status,
+                             rtSegment = "USCash",
+                             Unit.GL = 0,
+                             Account.Number = outWithEndCash$Account.Number,
+                             Market.Value = outWithEndCash$endCash,
+                             DoNotSell = FALSE)
+  }
+  temp <- temp %>%
+    select(Ticker, Price, Units, Cost.Basis, Tax.Status, rtSegment, Unit.GL, Account.Number, Security.Type, Market.Value, DoNotSell) %>%
+    left_join(ac, by = c("rtSegment" = "segment")) %>% mutate(endCash = 0)
+  lots <- rbind(lots, temp)
+
+  lots$Short.Term.Gain.Loss <- 0
+  lots$Long.Term.Gain.Loss <- lots$Market.Value - lots$Cost.Basis
+  out<-investor.create(lots,
+                             horizon=10,
+                             taxrate.state= 0.06,
+                             taxrate.ordinc = 0.35,
+                             taxrate.LTCG = 0.15,
+                             taxrate.STCG = 0.35,
+                             taxrate.qualdiv = 0.15,
+                             taxrate.surcharge = 0.038,
+                             benchmarkType = "US")
+
+  # end of modeling current allocation through time.
+  return(out)
+}
+
 rebalCur <- function(lots, targetAllocation, LTCG=0){
   out <- list()
   out$lpMatrix <- rebalCurBuildConstraintMatrix(lots, targetAllocation, LTCG)
@@ -224,7 +320,7 @@ ATV.taxable1 <- function(x, taxRates, lastYear = FALSE){
   realgl <- valuesold - basissold
   taxCG <- realgl * (x$LTCG * taxRates$LTCG + x$STCG * taxRates$STCG)
   out$yld <- div /out$Price
-  out$endCash <- valuesold + income - taxIncome - taxCG
+  out$endCash <- x$endCash + valuesold + income - taxIncome - taxCG
   out$Cost.Basis <- x$Cost.Basis - basissold
   out$Units <- x$Units - valuesold /out$Price
   if(lastYear){ # sell all
@@ -263,7 +359,7 @@ ATV.nonTaxable1 <- function(x, taxRates, lastYear = FALSE){
   income <- v * x$yld # income for the year pretax
   taxIncome <- 0
   out$yld <- div /out$Price
-  out$endCash <- income
+  out$endCash <- x$endCash + income
   out$Units <- x$Units
   if(lastYear){
     out$endCash <- out$endCash + out$Price * out$Units
