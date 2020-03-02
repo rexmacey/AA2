@@ -1,5 +1,24 @@
 # Miscellaneous utilities
 
+#' Add Item to a List. Used to make reading, editing of lists easier.
+#'
+#' @param .lst optional list to which to add item. If omitted, a list with only the item is returned.
+#' @param name name of item
+#' @param item item to be added to the list
+#'
+#' @return list
+#' @export
+#'
+addItem <- function(.lst, name = "", item){
+  out <- list(item)
+  names(out) <- name
+  if(missing(.lst)) {
+    return(out)
+  } else {
+    return(c(.lst, out))
+  }
+}
+
 #' Current Asset Allocation by Segment
 #'
 #' @param lots tibble or data frame with rtSegement, Market.Value (and Tax.Status if type = taxstatus)

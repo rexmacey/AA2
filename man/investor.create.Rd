@@ -6,6 +6,8 @@
 \usage{
 investor.create(
   portfolioHoldings,
+  portfolioName = "",
+  cashBuffers = NULL,
   horizon = 10,
   taxrate.state = 0,
   taxrate.ordinc = 0,
@@ -19,6 +21,10 @@ investor.create(
 }
 \arguments{
 \item{portfolioHoldings}{tibble with portfolio holdings}
+
+\item{portfolioName}{name of portfolio from BD}
+
+\item{cashBuffers}{tibble of portoflio cash buffers read in from BD}
 
 \item{horizon}{Time horizon in years. Default is 10.}
 

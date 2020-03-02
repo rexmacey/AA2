@@ -342,7 +342,6 @@ ATV.taxable1 <- function(x, taxRates, lastYear = FALSE){
 #' @return a tibble just like x. price, units, yld, endCash are updated. Other values remain.
 #' @export
 #'
-#' @examples
 ATV.nonTaxable1 <- function(x, taxRates, lastYear = FALSE){
   out <- x
   v <- x$Price * x$Units # value
@@ -383,7 +382,6 @@ ATV.nonTaxable1 <- function(x, taxRates, lastYear = FALSE){
 #' @return a tibble just like x. price, units, yld, endCash are updated. Other values remain.
 #' @export
 #'
-#' @examples
 ATV.year1 <- function(x, taxRates, lastYear = FALSE){
   if(x$Tax.Status == "Taxable"){
     out <- ATV.taxable1(x, taxRates, lastYear)

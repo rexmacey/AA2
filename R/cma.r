@@ -2,6 +2,58 @@
 #'
 #' This function creates a cma object.
 #'
+#' @param rafiData RAFI Data
+#' @param acNames Assumptions and names related to the asset classes
+#'
+#' @return CMA object
+#' @export
+#'
+createCMA <- function(rafiData, acNames){
+  # make sure acNames and rafiData$ret are in same order
+  acNames <- acNames[match(rafiData$ret$Asset.Class, acNames$rafi_ret_class_names),]
+  firstConstraintCol<-match("Max",colnames(acNames))+1 # Constraints begin after Max Col
+  idx <- rafiData$ret$Average.Net.Yield <= 0
+
+  out <- addItem(name = "inflationRate", item = as.numeric(rafiData$ret[1, "Expected.Return..Nominal."] -
+                                                             rafiData$ret[1, "Expected.Return..Real."])) %>%
+         addItem(name = "nconstraints", item = ncol(acNames) - firstConstraintCol + 1) %>%
+         addItem(name = "acData", item = rafiData$ret %>%
+                   mutate(expense = acNames$Expense) %>%
+                   mutate(geomRet = Expected.Return..Nominal. - expense,
+                          ret = geomRet + Volatility^2/2,
+                          yld = Average.Net.Yield,
+                          growth = Capital.Growth) %>%
+                   mutate(yld = ifelse(idx, yld + out$inflationRate, yld),
+                          growth = ifelse(!idx, growth + out$inflationRate, growth),
+                          valChg = geomRet - yld - growth,
+                          risk = Volatility) %>%
+                   select(Asset.Class, ret, geomRet, yld, growth, valChg, risk) %>%
+                   left_join(acNames, by = c("Asset.Class" = "rafi_ret_class_names")) %>%
+                   filter(Max != 0)) %>%
+        addItem(name = "asOfDate", item = rafiData$as_of_date) %>%
+        addItem(name = "classes", item = .$acData$rt_class_names) %>%
+        addItem(name = "nClasses", item = length(.$acData$rt_class_names)) %>%
+        addItem(name = "ret", item = .$acData$ret)
+
+  idx <- match(out$acData$rafi_corr_class_names, rafiData$corr$Asset.Class)
+  corr <- as.matrix(rafiData$corr[idx, 1+idx])
+  rownames(corr) <- colnames(rafiData$corr[1+idx])
+  cov <- as.matrix(rafiData$cov[idx, 1+idx])
+  rownames(cov) <- colnames(rafiData$cov[1+idx])
+  if (!matrixcalc::is.positive.semi.definite(cov)) {
+    cov <- Matrix::nearPD(cov, corr = FALSE, keepDiag = TRUE,
+                              maxit = 1000)$mat
+  }
+  out <- out %>% addItem(name = "corr", item = corr) %>%
+                 addItem(name = "cov", item = cov)
+  class(out) <- "cma"
+  return(out)
+}
+
+#' Create CMA (Capital Market Assumptions)
+#'
+#' Deprecated This function creates a cma object.
+#'
 #' @param rafiFN name including path of file with RAFI asset allocation assumptions
 #' @param acNamesFN name including path of file with asset class characteristics
 #' @param rafi_xlranges list of four ranges: return, corr, cov, and date
@@ -9,7 +61,7 @@
 #' @return a cma object
 #' @export
 #'
-createCMA <- function(rafiFN, acNamesFN, rafi_xlranges = NULL){
+createCMA2 <- function(rafiFN, acNamesFN, rafi_xlranges = NULL){
   out <- list()
   rafiData <- readRAFIFile(rafiFN, rafi_xlranges)
   out$inflationRate <- as.numeric(rafiData$ret[1, "Expected.Return..Nominal."] -

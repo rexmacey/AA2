@@ -78,7 +78,6 @@ readExcelFile <- function(fileName, sheet = NULL){
 #' @return
 #' @export
 #'
-#' @examples
 readPortfolioHoldings <- function(portfolioName = NULL, portfolioHoldingsFN){
   out <- suppressWarnings(readxl::read_excel(portfolioHoldingsFN, .name_repair = "unique",
                                                  col_types = c(rep("guess",9), rep("logical", 3), rep("guess", 12))))
@@ -90,3 +89,28 @@ readPortfolioHoldings <- function(portfolioName = NULL, portfolioHoldingsFN){
   return(out)
 }
 
+#' Read External Data Files
+#'
+#' @param portfolioName name of portfolio in BD
+#' @param portfolioHoldingsFN name of file with portfolio holdings exported from BD
+#' @param scenariosFN name of Excel file with scenario returns.
+#' @param scenarios_sheet name of worksheet in the scenariosFN file containing the data.
+#' @param benchmarkDefinitionFN name of file containing the definitions of benchmarks.
+#' @param rafiFN name of file containing RAFI expected return, correlation, covariance data.
+#' @param rafi_xlranges default (null) uses rafi_xlranges_default or specify names ranges. See readRAFIFile
+#'
+#' @return list with external data
+#' @export
+#'
+loadExternalData <- function(portfolioName, portfolioHoldingsFN, scenariosFN, scenarios_sheet, benchmarkDefinitionFN,
+                             rafiFN, rafi_xlranges){
+  if(missing(rafi_xlranges)) rafi_xlranges <- NULL
+  out <- addItem(name = "portfolioHoldings", item = readPortfolioHoldings(portfolioName, portfolioHoldingsFN)) %>%
+    addItem(name = "scenarios", item = readExcelFile(scenariosFN, sheet=scenarios_sheet)) %>%
+    addItem(name = "benchmarkDefinitions", item = readExcelFile(benchmarkDefinitionFN))  %>%
+    addItem(name = "cashBuffers", item = readExcelFile(cashBuffersFN)) %>%
+    addItem(name = "rafiData", item = readRAFIFile(rafiFN, rafi_xlranges)) %>%
+    addItem(name = "acNames", item = readACNameFile(acNamesFN))
+  return(out)
+
+}
